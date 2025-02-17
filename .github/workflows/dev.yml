@@ -14,23 +14,24 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v2
 
-    # Add SSH key to the SSH agent
-    - name: Install SSH key
-      uses: shimataro/ssh-key-action@v2
+    # Set up SSH key
+    - name: Set up SSH key
+      uses: webfactory/ssh-agent@v0.7.0
       with:
-        key: ${{ secrets.EC2_SSH_KEY }}
-        known_hosts: 'just-a-placeholder-so-we-dont-get-errors'
-        
+        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
     # Add the EC2 instance to known hosts
     - name: Adding Known Hosts
-      run: ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+      run: |
+        mkdir -p ~/.ssh
+        ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
     - name: Deploy to EC2
       uses: appleboy/ssh-action@master
       with:
         host: ${{ secrets.EC2_HOST }}
         username: ${{ secrets.EC2_USERNAME }}
-        password: ${{ secrets.EC2_PASSWORD }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
         port: ${{ secrets.SSH_PORT || '22' }}
         script_stop: true
         script: |
@@ -64,7 +65,7 @@ jobs:
 
           @app.get("/")
           async def root():
-              return {"message": "Hello World"}
+              return {"message": "Hello World application"}
           EOL
 
           cat > requirements.txt << 'EOL'
