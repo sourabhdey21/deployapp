@@ -1,0 +1,111 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    # Add SSH key to the SSH agent
+    - name: Install SSH key
+      uses: shimataro/ssh-key-action@v2
+      with:
+        key: ${{ secrets.EC2_SSH_KEY }}
+        known_hosts: 'just-a-placeholder-so-we-dont-get-errors'
+        
+    # Add the EC2 instance to known hosts
+    - name: Adding Known Hosts
+      run: ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+    - name: Deploy to EC2
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USERNAME }}
+        password: ${{ secrets.EC2_PASSWORD }}
+        port: ${{ secrets.SSH_PORT || '22' }}
+        script_stop: true
+        script: |
+          # Print connection info (for debugging)
+          echo "Connected as $(whoami) to $(hostname)"
+          
+          # Create app directory if it doesn't exist
+          mkdir -p ~/fastapi-app
+          cd ~/fastapi-app
+          
+          # Install Docker if not installed
+          if ! command -v docker &> /dev/null; then
+            echo "Installing Docker..."
+            sudo apt-get update
+            sudo apt-get install -y apt-transport-https ca-certificates curl software-properties-common
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+            sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+            sudo apt-get update
+            sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+            sudo systemctl start docker
+            sudo systemctl enable docker
+            sudo usermod -aG docker $USER
+          fi
+
+          # Copy application files
+          echo "Copying application files..."
+          cat > app.py << 'EOL'
+          from fastapi import FastAPI
+
+          app = FastAPI()
+
+          @app.get("/")
+          async def root():
+              return {"message": "Hello World"}
+          EOL
+
+          cat > requirements.txt << 'EOL'
+          fastapi==0.109.2
+          uvicorn==0.27.1
+          EOL
+
+          cat > Dockerfile << 'EOL'
+          FROM python:3.9-slim
+          
+          WORKDIR /app
+          
+          COPY requirements.txt .
+          COPY app.py .
+          
+          RUN pip install --no-cache-dir -r requirements.txt
+          
+          EXPOSE 8080
+          
+          CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8080"]
+          EOL
+
+          # Build Docker image
+          echo "Building Docker image..."
+          sudo docker build -t fastapi-app .
+
+          # Stop and remove existing container if it exists
+          echo "Cleaning up existing containers..."
+          sudo docker stop fastapi-container 2>/dev/null || true
+          sudo docker rm fastapi-container 2>/dev/null || true
+
+          # Run the new container
+          echo "Starting new container..."
+          sudo docker run -d \
+            --name fastapi-container \
+            -p 8080:8080 \
+            --restart unless-stopped \
+            fastapi-app
+
+          # Clean up unused images and containers
+          echo "Cleaning up..."
+          sudo docker system prune -f
+
+          echo "Deployment completed successfully!"
