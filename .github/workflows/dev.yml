@@ -51,8 +51,8 @@ jobs:
           
           # Remove existing directory if exists and clone the repository
           rm -rf ~/fastapi-app/*
-          echo "Cloning repository..."
-          git clone https://github.com/sourabhdey21/deployapp.git .
+          echo "Pull the updated repository..."
+          git pull  https://github.com/sourabhdey21/deployapp.git .
           
           # Install Docker if not installed
           if ! command -v docker &> /dev/null; then
